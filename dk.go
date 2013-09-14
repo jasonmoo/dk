@@ -158,8 +158,7 @@ func init() {
 			<-time.After(interval)
 
 			me.Lock()
-			if last_decay.Before(time.Now().Add(-interval)) {
-				last_decay = time.Now()
+			if time.Since(last_decay) > interval {
 				decay(*decay_rate, *decay_floor)
 			}
 			me.Unlock()
