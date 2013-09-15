@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -27,6 +26,8 @@ type (
 	Report struct {
 		IndexSize  int     `json:"index_size"`
 		RenderTime string  `json:"render_time"`
+		DecayRate  float64 `json:"decay_rate"`
+		DecayFloor float64 `json:"decay_floor"`
 		Results    Entries `json:"results"`
 	}
 )
@@ -79,29 +80,24 @@ func decay(rate, floor float64) {
 
 }
 
-func group_list() string {
+func group_list(host string) string {
 
-	var list []string
+	var list string
 
 	me.Lock()
 	for name, _ := range index {
-		list = append(list, name)
+		list += "http://" + host + "/top?g=" + name + "\n"
 	}
 	me.Unlock()
 
-	host := *http_host
-	if host[0] == ':' {
-		host = "localhost" + host
-	}
-
-	return "http://" + host + "/top?g=" + strings.Join(list, "\nhttp:///top?g=")
+	return "\n" + list
 }
 
 func add_handler(w http.ResponseWriter, r *http.Request) {
 
 	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
 	if len(g) == 0 || len(k) == 0 {
-		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list()), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list(r.Host)), http.StatusBadRequest)
 		return
 	}
 
@@ -125,7 +121,7 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 
 	g := r.FormValue("g")
 	if len(g) == 0 {
-		http.Error(w, "Missing required field g (group name)\n"+group_list(), http.StatusBadRequest)
+		http.Error(w, "Missing required field g (group name)\n\n"+group_list(r.Host), http.StatusBadRequest)
 		return
 	}
 
@@ -162,6 +158,8 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(&Report{
 		IndexSize:  len(index[g]),
 		RenderTime: time.Since(start).String(),
+		DecayRate:  *decay_rate,
+		DecayFloor: *decay_floor,
 		Results:    set,
 	})
 
