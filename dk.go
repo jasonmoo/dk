@@ -17,10 +17,17 @@ import (
 
 type (
 	Entry struct {
-		Name  string
-		Score float64
+		Name  string  `json:"name"`
+		Score float64 `json:"score"`
 	}
+
 	Entries []*Entry
+
+	Report struct {
+		IndexSize  int     `json:"index_size"`
+		RenderTime string  `json:"render_time"`
+		Results    Entries `json:"results"`
+	}
 )
 
 func (e Entries) Len() int           { return len(e) }
@@ -29,16 +36,15 @@ func (e Entries) Less(i, j int) bool { return e[i].Score > e[j].Score }
 
 var (
 	// global index
-	index = make(map[string]float64)
+	index map[string]map[string]float64
 
+	// global last decay time
 	last_decay = time.Now()
 
 	// global read/write lock
 	me = new(sync.Mutex)
 
-	// soon
-	// msgpack_host = flag.String("msgpack", ":81", "addr:port to listen on for msgpack rpc")
-
+	// cli options
 	http_host      = flag.String("host", "", "addr:port to listen on for http")
 	decay_rate     = flag.Float64("decay_rate", .02, "rate of decay per second")
 	decay_floor    = flag.Float64("decay_floor", .5, "minimum value to keep")
@@ -75,27 +81,32 @@ func decay(rate, floor float64) {
 
 	last_decay = time.Now()
 
-	for name, value := range index {
+	for group, _ := range index {
+		for name, value := range index[group] {
 
-		// simple decay
-		value /= dk
+			// simple decay
+			value /= dk
 
-		// clear out values that have decayed beyond relevance
-		if value < floor {
-			delete(index, name)
-		} else {
-			index[name] = value
+			// clear out values that have decayed beyond relevance
+			if value < floor {
+				delete(index[group], name)
+			} else {
+				index[group][name] = value
+			}
+
 		}
-
+		if len(index[group]) == 0 {
+			delete(index, group)
+		}
 	}
 
 }
 
 func add_handler(w http.ResponseWriter, r *http.Request) {
 
-	k, v := r.FormValue("k"), r.FormValue("v")
-	if len(k) == 0 {
-		http.Error(w, "Missing required data k", http.StatusBadRequest)
+	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
+	if len(g) == 0 || len(k) == 0 {
+		http.Error(w, "Missing required data g, k", http.StatusBadRequest)
 		return
 	}
 
@@ -105,19 +116,21 @@ func add_handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	me.Lock()
-	index[k] += inc
+	if _, ok := index[g]; !ok {
+		index[g] = make(map[string]float64)
+	}
+	index[g][k] += inc
 	me.Unlock()
 
 }
 
 func top_n_handler(w http.ResponseWriter, r *http.Request) {
 
-	me.Lock()
-	defer me.Unlock()
-
-	start := time.Now()
-
-	decay(*decay_rate, *decay_floor)
+	g := r.FormValue("g")
+	if len(g) == 0 {
+		http.Error(w, "Missing required data g", http.StatusBadRequest)
+		return
+	}
 
 	n, _ := strconv.Atoi(r.FormValue("n"))
 	if n < 1 {
@@ -126,30 +139,44 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 		n = 200
 	}
 
-	set := make(Entries, 0, n+1)
+	start := time.Now()
 
-	for name, value := range index {
-		// add the entry to the index
+	me.Lock()
+
+	decay(*decay_rate, *decay_floor)
+
+	// build a set of entries to sort and slice
+	set := make(Entries, 0, len(index[g]))
+
+	for name, value := range index[g] {
 		set = append(set, &Entry{name, value})
-		// sort the values
-		sort.Sort(set)
+	}
 
-		if len(set) > n {
-			// remove the min value
-			set = set[:n]
-		}
+	me.Unlock()
+
+	// sort the values
+	sort.Sort(set)
+
+	// remove the min value
+	if len(set) > n {
+		set = set[:n]
 	}
 
 	h := w.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	h.Set("X-Render-Time", time.Since(start).String())
 
-	json.NewEncoder(w).Encode(set)
+	json.NewEncoder(w).Encode(&Report{
+		IndexSize:  len(index[g]),
+		RenderTime: time.Since(start).String(),
+		Results:    set,
+	})
 
 }
 
 func init() {
+
+	index = make(map[string]map[string]float64)
 
 	// fire up a goroutine to periodically decay the set
 	go func() {
