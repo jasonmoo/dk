@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,32 +49,8 @@ var (
 	http_host      = flag.String("host", "", "addr:port to listen on for http")
 	decay_rate     = flag.Float64("decay_rate", .02, "rate of decay per second")
 	decay_floor    = flag.Float64("decay_floor", .5, "minimum value to keep")
-	decay_interval = flag.Int("decay_interval", 10, "maximum number of seconds to go between decays")
+	decay_interval = flag.Int("decay_interval", 2, "maximum number of seconds to go between decays")
 )
-
-const usage = `
-dk v0,1
-
-dk will open an http endpoint for adding values / and querying top content /top
-
-Notes:
-
-  decay_rate and decay_floor allow you to set how aggressively you decay
-  items from the set, and when to discard them.
-
-  a higher floor will keep fewer items in memory but will keep
-  fewer items in memory
-
-  a higher decay_rate will make it harder for entries to survive
-  where a lower one will keep the list populated
-
-  decay_interval is a way to ensure the data set doesn't grow too big
-  since we only decay it when it's being queried for topN ranges
-
-Usage:
-./dk -decay_rate .002 -decay_floor 1
-
-Options:`
 
 func decay(rate, floor float64) {
 
@@ -102,11 +79,30 @@ func decay(rate, floor float64) {
 
 }
 
+func group_list() string {
+
+	var list []string
+
+	me.Lock()
+	for name, _ := range index {
+		list = append(list, name)
+	}
+	me.Unlock()
+
+	host := *http_host
+	if host[0] == ':' {
+		host = "localhost" + host
+	}
+
+	return "http://" + host + "/top?g=" + strings.Join(list, "\nhttp:///top?g=")
+}
+
 func add_handler(w http.ResponseWriter, r *http.Request) {
 
 	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
 	if len(g) == 0 || len(k) == 0 {
-		http.Error(w, "Missing required data g, k", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, web_usage, BuildInfo, group_list())
 		return
 	}
 
@@ -128,7 +124,7 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 
 	g := r.FormValue("g")
 	if len(g) == 0 {
-		http.Error(w, "Missing required data g", http.StatusBadRequest)
+		http.Error(w, "Missing required field g (group name)\n"+group_list(), http.StatusBadRequest)
 		return
 	}
 
@@ -215,3 +211,41 @@ func main() {
 	log.Fatal(http.ListenAndServe(*http_host, nil))
 
 }
+
+const (
+	usage = `
+dk v0,1
+
+dk will open an http endpoint for adding values / and querying top content /top
+
+Notes:
+
+  decay_rate and decay_floor allow you to set how aggressively you decay
+  items from the set, and when to discard them.
+
+  a higher floor will keep fewer items in memory but will keep
+  fewer items in memory
+
+  a higher decay_rate will make it harder for entries to survive
+  where a lower one will keep the list populated
+
+  decay_interval is a way to ensure the data set doesn't grow too big
+  since we only decay it when it's being queried for topN ranges
+
+Usage:
+./dk -decay_rate .002 -decay_floor 1
+
+Options:`
+
+	// requires BuildInfo, group_list()
+	web_usage = `Missing required fields:
+g (group name)
+k (key name)
+v (optional; increment amount, defaults to 1)
+
+%s
+
+Group List:
+%s
+`
+)
