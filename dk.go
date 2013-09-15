@@ -101,8 +101,7 @@ func add_handler(w http.ResponseWriter, r *http.Request) {
 
 	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
 	if len(g) == 0 || len(k) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, web_usage, BuildInfo, group_list())
+		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list()), http.StatusBadRequest)
 		return
 	}
 
@@ -122,6 +121,8 @@ func add_handler(w http.ResponseWriter, r *http.Request) {
 
 func top_n_handler(w http.ResponseWriter, r *http.Request) {
 
+	start := time.Now()
+
 	g := r.FormValue("g")
 	if len(g) == 0 {
 		http.Error(w, "Missing required field g (group name)\n"+group_list(), http.StatusBadRequest)
@@ -135,10 +136,7 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 		n = 200
 	}
 
-	start := time.Now()
-
 	me.Lock()
-
 	decay(*decay_rate, *decay_floor)
 
 	// build a set of entries to sort and slice
@@ -147,7 +145,6 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 	for name, value := range index[g] {
 		set = append(set, &Entry{name, value})
 	}
-
 	me.Unlock()
 
 	// sort the values
