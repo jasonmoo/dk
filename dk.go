@@ -25,6 +25,7 @@ type (
 
 	Report struct {
 		IndexSize  int     `json:"index_size"`
+		Timestamp  int64   `json:"unix_nano"`
 		RenderTime string  `json:"render_time"`
 		DecayRate  float64 `json:"decay_rate"`
 		DecayFloor float64 `json:"decay_floor"`
@@ -146,7 +147,7 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 	// sort the values
 	sort.Sort(set)
 
-	// remove the min value
+	// reduce the set
 	if len(set) > n {
 		set = set[:n]
 	}
@@ -157,6 +158,7 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(&Report{
 		IndexSize:  len(index[g]),
+		Timestamp:  time.Now().UnixNano(),
 		RenderTime: time.Since(start).String(),
 		DecayRate:  *decay_rate,
 		DecayFloor: *decay_floor,
@@ -228,7 +230,7 @@ Notes:
   since we only decay it when it's being queried for topN ranges
 
 Usage:
-./dk -decay_rate .002 -decay_floor 1
+./dk -host :80 -decay_rate .002 -decay_floor 1 -decay_interval 2
 
 Options:`
 
