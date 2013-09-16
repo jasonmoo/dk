@@ -21,10 +21,16 @@
 
 	dk was inspired by @bitly's https://github.com/bitly/forgettable
 
+	Performance:
+		dk is optimized for fast writes and slower reads. Tests on a
+		mbp	and a random vps show write actions are commonly constant at
+		4-15 microseconds, with topN reads on sets of ~3k keys taking
+		as long as 1-2 milliseconds while under load, but are frequently
+		400-800 microseconds.
 
 	Usage:
 
-	# build and start server
+	// build and start server
 	./build.sh darwin/amd64 && sudo bin/dk-darwin-amd64 -host :80
 
 
@@ -64,6 +70,8 @@
 	g (group name)
 	n (count to return; capped at 200)
 
+#####Pre-built binaries (~1mb bzipped)
+[darwin/amd64](https://github.com/jasonmoo/dk/raw/master/builds/dk-darwin-amd64_0%2C1.bz2) [linux/amd64](https://github.com/jasonmoo/dk/raw/master/builds/dk-linux-amd64_0%2C1.bz2)
 
 #####Build Instructions:
 The build script will pull down it's own copy of go to build with.
