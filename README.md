@@ -9,19 +9,23 @@
 	        v 0,1
 
 
-	dk is a decaying hashtable of counters.
+	dk is a decaying 2-dimensional hashtable of counters
 
-	dk will track counts on keys in groups, and apply a constant time
-	decay function to the set periodically to keep the data fresh.
+	dk keeps track of counts on keys in groups, and applies a decay
+	function to the set periodically to keep the data fresh, and lean
 
-	dk can be tuned from the command line: decay percentage per second,
-	decay floor and decay minimum interval.
+	dk can be tuned from the command line:
+	  + decay_rate = rate of decay per second
+	  + decay_floor = minimum value to keep
+	  + decay_interval = maximum number of seconds to go between decays
+
+	dk was inspired by @bitly's https://github.com/bitly/forgettable
 
 
 	Usage:
 
-	// build and start server
-	./build darwin/amd64 true && sudo bin/dk-darwin-amd64 -host :80
+	# build and start server
+	./build.sh darwin/amd64 && sudo bin/dk-darwin-amd64 -host :80
 
 
 	// each call increments by one
@@ -62,11 +66,11 @@
 
 
 #####Build Instructions:
-The build script will pull down it's own copy of go to build with.  This can be manually reproduced by passing any second parameter to the build script.  The build script adds a few goodies at compile time.
+The build script will pull down it's own copy of go to build with.
 
-	./build.sh linux/amd64 true   >> pulls down and builds for linux/amd64
-	./build.sh darwin/amd64 true  >> pulls down and builds for darwin/amd64
-	./build.sh darwin/amd64       >> rebuilds for darwin/amd64
+	./build.sh linux/amd64          >> pulls down and builds for linux/amd64
+	./build.sh darwin/amd64         >> pulls down and builds for darwin/amd64
+	./build.sh darwin/amd64 rebuild >> rebuilds for darwin/amd64
 
 	>> bin/dk-darwin-amd64  // binary output file
 
@@ -74,4 +78,4 @@ The build script will pull down it's own copy of go to build with.  This can be 
 Running the dk binary without any parameters will output full options
 
 #####License
-MIT
+[MIT](https://raw.github.com/jasonmoo/dk/master/LICENSE)

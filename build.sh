@@ -52,7 +52,7 @@ export GOPATH=`pwd`
 export GOOS=${TARGET%/*}
 export GOARCH=${TARGET#*/}
 
-if [[ -n "$RECOMPILE" ]]; then
+if [[ -z "$RECOMPILE" ]]; then
 	(
 		echo "Pulling new go source tarball"
 		rm -rf $GOROOT && cd /tmp &&

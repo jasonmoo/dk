@@ -96,6 +96,7 @@ func group_list(host string) string {
 
 func add_handler(w http.ResponseWriter, r *http.Request) {
 
+	start := time.Now()
 	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
 	if len(g) == 0 || len(k) == 0 {
 		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list(r.Host)), http.StatusBadRequest)
@@ -114,6 +115,7 @@ func add_handler(w http.ResponseWriter, r *http.Request) {
 	index[g][k] += inc
 	me.Unlock()
 
+	w.Header().Set("X-Render-Time", time.Since(start).String())
 }
 
 func top_n_handler(w http.ResponseWriter, r *http.Request) {
