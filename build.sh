@@ -54,10 +54,11 @@ export GOARCH=${TARGET#*/}
 
 if [[ -z "$RECOMPILE" ]]; then
 	(
-		echo "Pulling new go source tarball"
+		echo "Pulling latest tip from https://code.google.com/p/go"
 		rm -rf $GOROOT && cd /tmp &&
-		curl "https://go.googlecode.com/files/go1.1.2.src.tar.gz" | tar xz &&
-		echo "Source retrieved.  Building stdlib" &&
+		(which hg || sudo yum install mercurial) &&
+		hg clone -u default https://code.google.com/p/go &&
+		echo "Source retrieved.  Building stdlib"
 		cd go/src && ./make.bash --no-clean 2>&1
 	)
 fi

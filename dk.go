@@ -1,51 +1,21 @@
 package main
 
 import (
+	"dktable"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
-	"sync"
+	"strings"
 	"time"
 )
 
-type (
-	Entry struct {
-		Name  string  `json:"name"`
-		Score float64 `json:"score"`
-	}
-
-	Entries []*Entry
-
-	Report struct {
-		IndexSize  int     `json:"index_size"`
-		Timestamp  int64   `json:"unix_nano"`
-		RenderTime string  `json:"render_time"`
-		DecayRate  float64 `json:"decay_rate"`
-		DecayFloor float64 `json:"decay_floor"`
-		Results    Entries `json:"results"`
-	}
-)
-
-func (e Entries) Len() int           { return len(e) }
-func (e Entries) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
-func (e Entries) Less(i, j int) bool { return e[i].Score > e[j].Score }
-
 var (
-	// global index
-	index map[string]map[string]float64
-
-	// global last decay time
-	last_decay = time.Now()
-
-	// global read/write lock
-	me = new(sync.Mutex)
+	index *dktable.DkTable
 
 	// cli options
 	http_host      = flag.String("host", "", "addr:port to listen on for http")
@@ -54,49 +24,14 @@ var (
 	decay_interval = flag.Int("decay_interval", 2, "maximum number of seconds to go between decays")
 )
 
-func decay(rate, floor float64) {
-
-	dk := math.Pow(1+rate, float64(time.Since(last_decay).Nanoseconds())/float64(time.Second))
-
-	last_decay = time.Now()
-
-	for group, _ := range index {
-		for name, value := range index[group] {
-
-			// simple decay
-			value /= dk
-
-			// clear out values that have decayed beyond relevance
-			if value < floor {
-				delete(index[group], name)
-			} else {
-				index[group][name] = value
-			}
-
-		}
-		if len(index[group]) == 0 {
-			delete(index, group)
-		}
-	}
-
-}
-
 func group_list(host string) string {
-
-	var list string
-
-	me.Lock()
-	for name, _ := range index {
-		list += "http://" + host + "/top?g=" + name + "\n"
-	}
-	me.Unlock()
-
-	return "\n" + list
+	return strings.Join(index.Groups(), "\nhttp://"+host+"/top?g=")
 }
 
 func add_handler(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
+
 	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
 	if len(g) == 0 || len(k) == 0 {
 		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list(r.Host)), http.StatusBadRequest)
@@ -108,12 +43,7 @@ func add_handler(w http.ResponseWriter, r *http.Request) {
 		inc, _ = strconv.ParseFloat(v, 64)
 	}
 
-	me.Lock()
-	if _, ok := index[g]; !ok {
-		index[g] = make(map[string]float64)
-	}
-	index[g][k] += inc
-	me.Unlock()
+	index.Add(g, k, inc)
 
 	w.Header().Set("X-Render-Time", time.Since(start).String())
 }
@@ -131,61 +61,16 @@ func top_n_handler(w http.ResponseWriter, r *http.Request) {
 	n, _ := strconv.Atoi(r.FormValue("n"))
 	if n < 1 {
 		n = 10
-	} else if n > 200 {
-		n = 200
 	}
 
-	me.Lock()
-	decay(*decay_rate, *decay_floor)
-
-	// build a set of entries to sort and slice
-	set := make(Entries, 0, len(index[g]))
-
-	for name, value := range index[g] {
-		set = append(set, &Entry{name, value})
-	}
-	me.Unlock()
-
-	// sort the values
-	sort.Sort(set)
-
-	// reduce the set
-	if len(set) > n {
-		set = set[:n]
-	}
-
-	h := w.Header()
+	h, report := w.Header(), index.Report(g, n)
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	h.Set("X-Render-Time", time.Since(start).String())
 
-	json.NewEncoder(w).Encode(&Report{
-		IndexSize:  len(index[g]),
-		Timestamp:  time.Now().UnixNano(),
-		RenderTime: time.Since(start).String(),
-		DecayRate:  *decay_rate,
-		DecayFloor: *decay_floor,
-		Results:    set,
-	})
-
-}
-
-func init() {
-
-	index = make(map[string]map[string]float64)
-
-	// fire up a goroutine to periodically decay the set
-	go func() {
-		interval := time.Duration(*decay_interval) * time.Second
-		for {
-			<-time.After(interval)
-
-			me.Lock()
-			if time.Since(last_decay) > interval {
-				decay(*decay_rate, *decay_floor)
-			}
-			me.Unlock()
-		}
-	}()
+	if err := json.NewEncoder(w).Encode(report); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 
 }
 
@@ -203,6 +88,9 @@ func main() {
 		fmt.Println()
 		os.Exit(0)
 	}
+
+	index = dktable.New(*decay_rate, *decay_floor, *decay_interval)
+	index.Init()
 
 	http.HandleFunc("/", add_handler)
 	http.HandleFunc("/top", top_n_handler)
