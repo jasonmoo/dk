@@ -9,6 +9,7 @@ MY_BUILD_SYSTEM=$(uname -a)
 MY_BUILD_REPO=$(git remote show -n origin | perl -ne "print (/Fetch URL: (.+)$/);")
 MY_BUILD_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 MY_BUILD_COMMIT=$(git rev-parse master)
+MY_BUILD_REF="https://github.com/jasonmoo/dk/commit/$MY_BUILD_COMMIT"
 
 cat << EOF > my_build_info.go
 package main
@@ -34,6 +35,7 @@ Builder: $MY_BUILD_BUILDER
 System:  $MY_BUILD_SYSTEM
 Origin:  $MY_BUILD_REPO
 Rev:     $MY_BUILD_BRANCH/$MY_BUILD_COMMIT
+Ref:     $MY_BUILD_REF
 
 Go Build Info
 Version: %s

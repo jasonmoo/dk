@@ -20,9 +20,9 @@ type (
 
 	Report struct {
 		Running     bool    `json:"running"`
-		TableSize   int     `json:"table_size"`
 		Timestamp   string  `json:"timestamp"`
 		RenderTime  string  `json:"render_time"`
+		TableSize   int     `json:"table_size"`
 		DecayRate   float64 `json:"decay_rate"`
 		DecayFloor  float64 `json:"decay_floor"`
 		ResultCount int     `json:"result_count"`
@@ -160,9 +160,9 @@ func (d *Table) Report(g string, n int) *Report {
 
 	return &Report{
 		Running:     d.running,
-		TableSize:   set_size,
 		Timestamp:   time.Now().String(),
 		RenderTime:  time.Since(start).String(),
+		TableSize:   set_size,
 		DecayRate:   d.decay_rate,
 		DecayFloor:  d.decay_floor,
 		ResultCount: len(set),
