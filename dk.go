@@ -68,9 +68,7 @@ func (d *Table) Start() {
 }
 
 func (d *Table) Stop() {
-	d.me.Lock()
 	d.running = false
-	d.me.Unlock()
 }
 
 func (d *Table) Reset() {
