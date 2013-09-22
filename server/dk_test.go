@@ -1,4 +1,4 @@
-package dk
+package main
 
 import (
 	"testing"

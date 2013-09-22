@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TARGET=${1?:"Please specify a build target: darwin/386, darwin/amd64, freebsd/386, freebsd/amd64, freebsd/arm, linux/386, linux/amd64, linux/arm, windows/386, windows/amd64"}
+TARGET=${1?:"Please specify a build target: darwin/386, darwin/amd64, freebsd/386, freebsd/amd64, linux/386, linux/amd64"}
 RECOMPILE=${2}
 
 MY_BUILD_DATE=$(date | perl -pe "s/\n//g")
@@ -48,29 +48,37 @@ EOF
 
 export GOROOT=/tmp/go
 export GOBIN=$GOROOT/bin
-export GOPATH=`pwd`
+export GOPATH=$(pwd)
 export GOOS=${TARGET%/*}
 export GOARCH=${TARGET#*/}
 
+date
+echo "dk build script starting up"
+echo
+
 if [[ -z "$RECOMPILE" ]]; then
 	(
-		echo "Pulling latest tip from https://code.google.com/p/go"
-		rm -rf $GOROOT && cd /tmp &&
-		(which hg || sudo yum install mercurial) &&
-		hg clone -u default https://code.google.com/p/go &&
-		echo "Source retrieved.  Building stdlib"
-		cd go/src && ./make.bash --no-clean 2>&1
+		echo "Ensuring $GOROOT"   && mkdir -p $GOROOT && cd $GOROOT &&
+		echo "Downloading source" && ([ -d .hg ] || hg clone https://code.google.com/p/go .) && hg pull && hg up default &&
+		echo "Building stdlib"    && cd src && ./make.bash --no-clean 2>&1
 	)
+	if [[ $? -ne 0 ]]; then
+		echo "Go build failed.  Exiting..." && exit 1
+	fi
 fi
 
 
 # grab deps, clear existing builds, and build
-echo "Building..."
-(rm -f bin/* && $GOBIN/go get && $GOBIN/go build -o "bin/dk-$GOOS-$GOARCH" dk.go my_build_info.go)
+echo "go get..."   && $GOBIN/go get &&
+echo "go build..." && $GOBIN/go build -o "bin/dk-$GOOS-$GOARCH" dk.go my_build_info.go
 r=$?
 
 # cleanup
 rm -f my_build_info.go
+
+if [[ $r -ne 0 ]]; then
+	echo "dk build failed.  Exiting..." && exit 1
+fi
 
 # status
 ls -lh bin
@@ -78,5 +86,4 @@ md5  bin/* | column -t
 file bin/*
 
 echo "Done!"
-
-exit $r
+echo

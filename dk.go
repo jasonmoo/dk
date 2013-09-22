@@ -1,138 +1,173 @@
-package main
+package dk
 
 import (
-	"dktable"
-	"encoding/json"
-	"flag"
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"runtime"
-	"strconv"
-	"strings"
+	"math"
+	"sort"
+	"sync"
 	"time"
 )
 
-var (
-	index *dktable.DkTable
+type (
+	Table struct {
+		table          map[string]map[string]float64
+		last_decay     time.Time
+		me             *sync.Mutex
+		decay_rate     float64
+		decay_floor    float64
+		decay_interval time.Duration
+		running        bool
+	}
 
-	// cli options
-	http_host      = flag.String("host", "", "addr:port to listen on for http")
-	decay_rate     = flag.Float64("decay_rate", .02, "rate of decay per second")
-	decay_floor    = flag.Float64("decay_floor", .5, "minimum value to keep")
-	decay_interval = flag.Int("decay_interval", 2, "maximum number of seconds to go between decays")
+	Report struct {
+		Running     bool    `json:"running"`
+		TableSize   int     `json:"table_size"`
+		Timestamp   string  `json:"timestamp"`
+		RenderTime  string  `json:"render_time"`
+		DecayRate   float64 `json:"decay_rate"`
+		DecayFloor  float64 `json:"decay_floor"`
+		ResultCount int     `json:"result_count"`
+		Results     Entries `json:"results"`
+	}
+
+	Entries []*Entry
+
+	Entry struct {
+		Name  string  `json:"name"`
+		Score float64 `json:"score"`
+	}
 )
 
-func group_list(host string) string {
-	return strings.Join(index.Groups(), "\nhttp://"+host+"/top?g=")
+func (e Entries) Len() int           { return len(e) }
+func (e Entries) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+func (e Entries) Less(i, j int) bool { return e[i].Score > e[j].Score }
+
+func NewTable(rate, floor float64, interval time.Duration) *Table {
+	return &Table{
+		table:          make(map[string]map[string]float64),
+		me:             new(sync.Mutex),
+		decay_rate:     rate,
+		decay_floor:    floor,
+		decay_interval: interval,
+	}
 }
 
-func add_handler(w http.ResponseWriter, r *http.Request) {
+func (d *Table) Start() {
+	// fire up a goroutine to periodically decay the set
+	d.last_decay = time.Now()
+	d.running = true
+	go func() {
+		for d.running {
+			if time.Since(d.last_decay) > d.decay_interval {
+				d.me.Lock()
+				d.decay()
+				d.me.Unlock()
+			}
+			time.Sleep(d.decay_interval)
+		}
+	}()
+}
+
+func (d *Table) Stop() {
+	d.me.Lock()
+	d.running = false
+	d.me.Unlock()
+}
+
+func (d *Table) Reset() {
+	d.me.Lock()
+	d.table = make(map[string]map[string]float64)
+	d.me.Unlock()
+}
+
+func (d *Table) Add(group, key string, inc float64) {
+
+	d.me.Lock()
+	if _, ok := d.table[group]; !ok {
+		d.table[group] = make(map[string]float64)
+	}
+	d.table[group][key] += inc
+	d.me.Unlock()
+
+}
+
+func (d *Table) decay() {
+
+	// decay rate is applied as a compounding function
+	dk_rate := math.Pow(1+d.decay_rate, float64(time.Since(d.last_decay).Nanoseconds())/float64(time.Second))
+
+	d.last_decay = time.Now()
+
+	for group, _ := range d.table {
+		for name, value := range d.table[group] {
+
+			// simple decay
+			value /= dk_rate
+
+			// clear out values that have decayed beyond relevance
+			if value < d.decay_floor {
+				delete(d.table[group], name)
+			} else {
+				d.table[group][name] = value
+			}
+
+		}
+		if len(d.table[group]) == 0 {
+			delete(d.table, group)
+		}
+	}
+
+}
+func (d *Table) Groups() (groups []string) {
+	d.me.Lock()
+	for name, _ := range d.table {
+		groups = append(groups, name)
+	}
+	d.me.Unlock()
+	return
+}
+
+func (d *Table) Report(g string, n int) *Report {
 
 	start := time.Now()
 
-	g, k, v := r.FormValue("g"), r.FormValue("k"), r.FormValue("v")
-	if len(g) == 0 || len(k) == 0 {
-		http.Error(w, fmt.Sprintf(web_usage, BuildInfo, group_list(r.Host)), http.StatusBadRequest)
-		return
+	d.me.Lock()
+
+	d.decay()
+
+	set_size := len(d.table[g])
+
+	// build a set of entries to sort and slice
+	set := make(Entries, 0, set_size)
+
+	for name, value := range d.table[g] {
+		set = append(set, &Entry{name, value})
 	}
 
-	inc := 1.0
-	if len(v) > 0 {
-		inc, _ = strconv.ParseFloat(v, 64)
-	}
+	d.me.Unlock()
 
-	index.Add(g, k, inc)
+	// sort the values
+	sort.Sort(set)
 
-	w.Header().Set("X-Render-Time", time.Since(start).String())
-}
-
-func top_n_handler(w http.ResponseWriter, r *http.Request) {
-
-	start := time.Now()
-
-	g := r.FormValue("g")
-	if len(g) == 0 {
-		http.Error(w, "Missing required field g (group name)\n\n"+group_list(r.Host), http.StatusBadRequest)
-		return
-	}
-
-	n, _ := strconv.Atoi(r.FormValue("n"))
+	// ensure n is between 1 and len(set)
 	if n < 1 {
-		n = 10
+		n = 1
+	} else if n > set_size {
+		n = set_size
 	}
 
-	h, report := w.Header(), index.Report(g, n)
-	h.Set("Content-Type", "application/json; charset=utf-8")
-	h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	h.Set("X-Render-Time", time.Since(start).String())
-
-	if err := json.NewEncoder(w).Encode(report); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// reduce the set
+	if n < len(set) {
+		set = set[:n]
 	}
 
+	return &Report{
+		Running:     d.running,
+		TableSize:   set_size,
+		Timestamp:   time.Now().String(),
+		RenderTime:  time.Since(start).String(),
+		DecayRate:   d.decay_rate,
+		DecayFloor:  d.decay_floor,
+		ResultCount: len(set),
+		Results:     set,
+	}
 }
-
-func main() {
-
-	fmt.Println("dk starting up")
-	defer fmt.Println("dk exiting")
-
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
-	flag.Parse()
-	if flag.NFlag() < 1 {
-		fmt.Println(usage)
-		flag.PrintDefaults()
-		fmt.Println()
-		os.Exit(0)
-	}
-
-	index = dktable.New(*decay_rate, *decay_floor, *decay_interval)
-	index.Init()
-
-	http.HandleFunc("/", add_handler)
-	http.HandleFunc("/top", top_n_handler)
-
-	log.Fatal(http.ListenAndServe(*http_host, nil))
-
-}
-
-const (
-	usage = `
-dk v0,1
-
-dk will open an http endpoint for adding values / and querying top content /top
-
-Notes:
-
-  decay_rate and decay_floor allow you to set how aggressively you decay
-  items from the set, and when to discard them.
-
-  a higher floor will keep fewer items in memory but will keep
-  fewer items in memory
-
-  a higher decay_rate will make it harder for entries to survive
-  where a lower one will keep the list populated
-
-  decay_interval is a way to ensure the data set doesn't grow too big
-  since we only decay it when it's being queried for topN ranges
-
-Usage:
-./dk -host :80 -decay_rate .002 -decay_floor 1 -decay_interval 2
-
-Options:`
-
-	// requires BuildInfo, group_list()
-	web_usage = `Missing required fields:
-g (group name)
-k (key name)
-v (optional; increment amount, defaults to 1)
-
-%s
-
-Group List:
-%s
-`
-)
