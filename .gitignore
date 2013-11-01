@@ -1,0 +1,6 @@
+.DS_Store
+dk
+bin/
+pkg/
+src/
+server/src
