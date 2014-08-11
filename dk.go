@@ -1,11 +1,12 @@
 package dk
 
 import (
-	"github.com/jasonmoo/cardinal"
 	"math"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/jasonmoo/cardinal"
 )
 
 type (
@@ -45,8 +46,8 @@ type (
 	Cardinality struct {
 		Percent  float64 `json:"percent"`
 		Duration string  `json:"duration"`
-		Uniques  uint    `json:"uniques"`
-		Total    uint    `json:"total"`
+		Uniques  uint64  `json:"uniques"`
+		Total    uint64  `json:"total"`
 	}
 
 	Entries []*Entry
