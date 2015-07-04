@@ -16,5 +16,7 @@
 
 	  + dk was inspired by @bitly's https://github.com/bitly/forgettable
 
-[DOCS](http://godoc.org/github.com/jasonmoo/dk) 
+Used in several trend monitoring dashboards for high speed/throughput logs.
+
+[DOCS](http://godoc.org/github.com/jasonmoo/dk)
 [LICENSE](https://raw.github.com/jasonmoo/dk/master/LICENSE)
