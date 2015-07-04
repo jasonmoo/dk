@@ -112,7 +112,7 @@ func (d *Table) Add(column, key string, inc float64) {
 	}
 
 	c.values[key] += inc
-	c.filter.Add([]byte(key))
+	c.filter.Add(key)
 
 	d.Unlock()
 
